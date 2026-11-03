@@ -1,0 +1,18 @@
+# Настройка для бесплатного хостинга Render (render.com).
+# Кнопка «Deploy to Render» в README создаёт сервер скачивания по этому файлу.
+services:
+  - type: web
+    name: moi-sait-downloader
+    runtime: docker
+    plan: free
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: ./server
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ACCESS_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "https://zudzudabuayub.github.io"
+      - key: MAX_FILESIZE_MB
+        value: "1024"

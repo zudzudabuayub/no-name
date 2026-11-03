@@ -586,3 +586,51 @@ dialog::backdrop { background: var(--overlay); backdrop-filter: blur(3px); -webk
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ===== Скачивание через свой сервер ===== */
+.here { border-top: 4px solid var(--pf); animation: fade .2s; }
+.here-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); min-height: 48px; }
+.here-head { display: flex; gap: 14px; align-items: flex-start; min-width: 0; }
+.here-thumb { width: 168px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; flex: none; background: var(--surface-2); }
+.here-thumb.ph { display: grid; place-items: center; color: var(--muted); }
+.here-thumb.ph .ic { width: 32px; height: 32px; }
+.here-info { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; min-width: 0; }
+.here-info h3 { font-size: 17px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 560px) { .here-head { flex-direction: column; } .here-thumb { width: 100%; } }
+.job { display: flex; flex-direction: column; gap: 10px; }
+.job-text { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 550; }
+.progress.big { height: 8px; flex: none; }
+.progress.big i { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.job-done { display: flex; flex-direction: column; gap: 12px; animation: fade .2s; }
+.job-done video { width: 100%; max-height: 60vh; border-radius: 14px; background: #000; }
+.job-done audio { width: 100%; }
+.other-ways > summary { cursor: pointer; font-weight: 600; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 8px; }
+.other-ways > summary::-webkit-details-marker { display: none; }
+.other-ways > summary::before { content: "▸"; transition: transform .15s; }
+.other-ways[open] > summary::before { transform: rotate(90deg); }
+.other-ways:not([open]) { gap: 0; }
+.steps { margin: 10px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.steps .mono, .hint .mono { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; font-size: 12.5px; word-break: break-all; }
+.status-line { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+
+/* ===== Телеканалы ===== */
+.channels { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.channel { display: flex; align-items: center; gap: 2px; padding-right: 4px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); transition: border-color .15s; min-width: 0; }
+.channel.on { border-color: var(--c-football); background: color-mix(in srgb, var(--c-football) 10%, var(--surface-2)); }
+.ch-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px; border: none; background: none; text-align: left; cursor: pointer; border-radius: 12px; }
+.ch-main .avatar { width: 38px; height: 38px; font-size: 16px; }
+.ch-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ch-text b, .ch-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-text small { color: var(--muted); font-size: 12px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .4; flex: none; }
+.channel.on .live-dot { background: #ef4444; opacity: 1; animation: pulse 1.2s infinite; }
+.channels > .btn { grid-column: 1 / -1; justify-self: start; }
+.tv-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-width: 0; }
+.tv-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-badge { flex: none; font-size: 11px; font-weight: 800; letter-spacing: .05em; color: #fff; background: #ef4444; padding: 3px 8px; border-radius: 6px; }
+.tv-screen video { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; }
+.tv-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px;
+  text-align: center; color: #fff; background: rgba(0, 0, 0, .72); font-size: 14px; }
+.tv-err .ic { width: 36px; height: 36px; opacity: .7; }
+.tv-overlay .btn { color: var(--text); }
+@media (max-width: 560px) { .channels { grid-template-columns: minmax(0, 1fr); } .tv .sec-head .btn span { display: none; } }

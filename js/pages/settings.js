@@ -3,6 +3,7 @@ import { strength } from '../crypto.js';
 import { APP_NAME } from '../defaults.js';
 import { questionsHTML, bindQuestions, readQuestions } from '../questions.js';
 import { codeBlock, bindCodeBlock } from '../auth.js';
+import { serverModal, getServer } from '../server.js';
 import {
   $, esc, icon, modal, toast, download, pickFile, confirmBox, setError,
   passwordField, bindPasswordToggles, strengthBar, updateStrength,
@@ -64,6 +65,14 @@ export function render(view, ctx) {
           <button class="btn" id="s-q">${icon('question')} Изменить вопросы</button>
           <button class="btn" id="s-code">${icon('ticket')} Новый код восстановления</button>
         </div>
+      </section>
+
+      <section class="card">
+        <h3>${icon('server')} Сервер для скачивания</h3>
+        ${getServer(d).url
+          ? `<div class="kv"><span>Адрес</span><b class="mono ellipsis">${esc(getServer(d).url)}</b></div>`
+          : '<p class="muted small">Не подключён. С ним видео скачиваются прямо с этого сайта, без сторонних сервисов.</p>'}
+        <button class="btn" id="s-server">${icon(getServer(d).url ? 'edit' : 'plus')} ${getServer(d).url ? 'Изменить' : 'Подключить сервер'}</button>
       </section>
 
       <section class="card">
@@ -193,6 +202,8 @@ export function render(view, ctx) {
       onOpen: (form) => bindCodeBlock(form, code),
     });
   }));
+
+  $('#s-server', view).addEventListener('click', () => serverModal(ctx, () => ctx.reload()));
 
   // Безопасность
   $('#s-lock', view).addEventListener('change', async (e) => {

@@ -1,4 +1,32 @@
 import { $, $$, esc, icon, uid, safeUrl, hostOf, modal, confirmBox, toast, copyText, pasteText, fmtDate, debounce } from '../ui.js';
+import { api, fileUrl, hasServer, serverModal } from '../server.js';
+
+const QUALITY_LABELS = { best: 'Максимум', 1080: '1080p', 720: '720p', 480: '480p', 360: '360p', audio: 'Только звук MP3' };
+
+function fmtDuration(sec) {
+  if (!sec) return '';
+  sec = Math.round(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+
+function fmtSize(bytes) {
+  if (!bytes) return '';
+  const mb = bytes / 1048576;
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' ГБ' : mb >= 10 ? Math.round(mb) + ' МБ' : mb.toFixed(1) + ' МБ';
+}
+
+/** Какие варианты качества показать для видео с такими разрешениями. */
+function qualityOptions(info) {
+  if (!info.has_video) return ['audio'];
+  const max = info.heights[0] || 0;
+  const opts = [];
+  if (!max || max > 1080) opts.push('best');
+  for (const h of [1080, 720, 480, 360]) if (max && max >= h) opts.push(String(h));
+  if (max && max < 360) opts.push('best');
+  opts.push('audio');
+  return opts;
+}
 
 export const title = 'Скачать видео';
 
@@ -64,10 +92,13 @@ export function render(view, ctx) {
       <div class="pf-list">${PLATFORMS.slice(0, 10).map((p) => `<span class="pf-dot" style="--pf:${p.color}">${esc(p.name)}</span>`).join('')}<span class="muted small">и ещё 1000+ сайтов</span></div>
     </section>
 
+    <div id="dl-here"></div>
     <div id="dl-result"></div>
 
+    <section class="card" id="srv-card"></section>
+
     <section class="card">
-      <div class="sec-head"><h3>${icon('download')} Сервисы для скачивания</h3>
+      <div class="sec-head"><h3>${icon('external')} Сторонние сервисы</h3>
         <button class="btn sm" id="svc-add">${icon('plus')} Добавить</button></div>
       <div id="svc-list" class="svc-list"></div>
       <p class="hint">В адресе сервиса можно написать <span class="mono">{url}</span> — туда подставится ссылка на видео.
@@ -80,6 +111,142 @@ export function render(view, ctx) {
 
   const input = $('#dl-url', view);
   const result = $('#dl-result', view);
+  const here = $('#dl-here', view);
+  let alive = true;
+  let infoToken = 0;
+  let pollTimer = null;
+
+  function stopPoll() { if (pollTimer) clearTimeout(pollTimer); pollTimer = null; }
+
+  // ---------- Скачивание прямо здесь (через ваш сервер) ----------
+
+  function drawServerCard() {
+    const card = $('#srv-card', view);
+    const s = dl.server || {};
+    card.innerHTML = s.url
+      ? `<div class="sec-head"><h3>${icon('shield')} Ваш сервер скачивания</h3>
+          <button class="btn sm ghost" id="srv-edit">${icon('edit')} Изменить</button></div>
+         <p class="muted small ellipsis">Подключён: <span class="mono">${esc(s.url)}</span></p>`
+      : `<div class="sec-head"><h3>${icon('download')} Скачивать прямо здесь</h3></div>
+         <p class="muted">Подключите свой бесплатный сервер (как в nova-downloader) — и видео будет скачиваться
+           прямо с этого сайта, без сторонних сервисов и рекламы.</p>
+         <button class="btn primary" id="srv-edit">${icon('plus')} Подключить сервер</button>`;
+    $('#srv-edit', card).addEventListener('click', () => serverModal(ctx, () => { drawServerCard(); drawResult(true); }));
+  }
+
+  async function drawHere(u, p) {
+    stopPoll();
+    const token = ++infoToken;
+    here.innerHTML = `<section class="card here" style="--pf:${p ? p.color : 'var(--accent)'}">
+      <div class="here-loading"><span class="spinner"></span><span id="here-msg">Получаю информацию о видео…</span></div>
+    </section>`;
+    let info;
+    try {
+      info = await api(ctx.data, '/api/info', {
+        body: { url: u },
+        timeout: 120000,
+        onSlow: () => { const m = $('#here-msg', here); if (m) m.textContent = 'Сервер просыпается (бесплатный хостинг засыпает без дела) — до минуты…'; },
+      });
+    } catch (e) {
+      if (token !== infoToken || !alive) return;
+      here.innerHTML = `<section class="card here" style="--pf:${p ? p.color : 'var(--accent)'}">
+        <p class="form-error">${esc(e.message)}</p>
+        <div class="row"><button class="btn sm" id="here-retry">${icon('refresh')} Повторить</button>
+        ${e.status === 401 || e.status === 0 ? `<button class="btn sm ghost" id="here-srv">${icon('edit')} Настройки сервера</button>` : ''}</div>
+      </section>`;
+      $('#here-retry', here).addEventListener('click', () => drawHere(u, p));
+      $('#here-srv', here)?.addEventListener('click', () => serverModal(ctx, () => { drawServerCard(); drawResult(true); }));
+      return;
+    }
+    if (token !== infoToken || !alive) return;
+
+    const opts = qualityOptions(info);
+    const saved = dl.quality || '720';
+    const chosen = opts.includes(saved) ? saved : (opts.find((o) => o !== 'best' && o !== 'audio' && Number(o) <= 720) || opts[0]);
+    const meta = [info.uploader, fmtDuration(info.duration)].filter(Boolean).join(' · ');
+    here.innerHTML = `<section class="card here" style="--pf:${p ? p.color : 'var(--accent)'}">
+      <div class="here-head">
+        ${info.thumbnail && safeUrl(info.thumbnail) ? `<img class="here-thumb" src="${esc(safeUrl(info.thumbnail))}" alt="" referrerpolicy="no-referrer">` : `<div class="here-thumb ph">${icon('video')}</div>`}
+        <div class="here-info">
+          <span class="pf-badge">${esc(p ? p.name : (info.platform || hostOf(u)))}</span>
+          <h3>${esc(info.title)}</h3>
+          ${meta ? `<small class="muted">${esc(meta)}</small>` : ''}
+        </div>
+      </div>
+      <div class="seg" role="radiogroup" aria-label="Качество">${opts.map((o) => `<label><input type="radio" name="q" value="${o}" ${o === chosen ? 'checked' : ''}><span>${esc(o === 'best' && info.heights[0] ? `Максимум (${info.heights[0]}p)` : QUALITY_LABELS[o])}</span></label>`).join('')}</div>
+      <button class="btn primary lg block" id="here-go">${icon('download')} Скачать</button>
+      <div id="job"></div>
+    </section>`;
+    $$('img.here-thumb', here).forEach((img) => img.addEventListener('error', () => img.replaceWith(Object.assign(document.createElement('div'), { className: 'here-thumb ph' })), { once: true }));
+    $('#here-go', here).addEventListener('click', () => {
+      const q = $('input[name=q]:checked', here)?.value || chosen;
+      if (dl.quality !== q) { dl.quality = q; ctx.save(); }
+      startJob(u, p, q, info);
+    });
+  }
+
+  async function startJob(u, p, q, info) {
+    stopPoll();
+    const box = $('#job', here);
+    const go = $('#here-go', here);
+    go.disabled = true;
+    box.innerHTML = `<div class="job"><div class="job-text"><span class="spinner"></span><span id="job-msg">Отправляю на сервер…</span></div>
+      <span class="progress big"><i id="job-bar" style="width:0%"></i></span></div>`;
+    addHistory(u, p);
+    let id;
+    try {
+      ({ id } = await api(ctx.data, '/api/jobs', { body: { url: u, quality: q }, timeout: 60000 }));
+    } catch (e) {
+      go.disabled = false;
+      box.innerHTML = `<p class="form-error">${esc(e.message)}</p>`;
+      return;
+    }
+    const poll = async () => {
+      if (!alive) return;
+      let s;
+      try {
+        s = await api(ctx.data, '/api/jobs/' + id, { timeout: 30000 });
+      } catch (e) {
+        if (!alive) return;
+        pollTimer = setTimeout(poll, 2500);
+        return;
+      }
+      if (!alive || !$('#job-msg', box)) return;
+      const bar = $('#job-bar', box);
+      const msg = $('#job-msg', box);
+      if (s.status === 'queued') msg.textContent = 'В очереди…';
+      else if (s.status === 'downloading') {
+        const extra = [s.speed ? fmtSize(s.speed) + '/с' : '', s.eta ? `осталось ${fmtDuration(s.eta)}` : ''].filter(Boolean).join(' · ');
+        msg.textContent = `Сервер скачивает видео… ${Math.round(s.progress || 0)}%${extra ? ' · ' + extra : ''}`;
+      } else if (s.status === 'processing') msg.textContent = q === 'audio' ? 'Делаю MP3…' : 'Склеиваю видео и звук…';
+      bar.style.width = (s.progress || 0) + '%';
+      if (s.status === 'done') return showDone(id, s, q, info);
+      if (s.status === 'error') {
+        go.disabled = false;
+        box.innerHTML = `<p class="form-error">${esc(s.error || 'Ошибка')}</p>`;
+        return;
+      }
+      pollTimer = setTimeout(poll, 1000);
+    };
+    poll();
+  }
+
+  function showDone(id, s, q, info) {
+    const box = $('#job', here);
+    const go = $('#here-go', here);
+    go.disabled = false;
+    go.innerHTML = `${icon('refresh')} Скачать в другом качестве`;
+    go.classList.remove('primary');
+    const inline = fileUrl(ctx.data, id, true);
+    box.innerHTML = `<div class="job-done">
+      ${q === 'audio'
+        ? `<audio controls preload="metadata" src="${esc(inline)}"></audio>`
+        : `<video controls playsinline preload="metadata" src="${esc(inline)}" ${info.thumbnail && safeUrl(info.thumbnail) ? `poster="${esc(safeUrl(info.thumbnail))}"` : ''}></video>`}
+      <a class="btn primary lg block" href="${esc(fileUrl(ctx.data, id))}" download="${esc(s.filename || '')}">${icon('download')} Сохранить на устройство${s.size ? ` (${fmtSize(s.size)})` : ''}</a>
+      <p class="hint">${icon('check')} Готово: <b>${esc(s.filename || '')}</b>. Файл хранится на сервере 20 минут.</p>
+    </div>`;
+    toast('Видео готово', 'success');
+  }
 
   function addHistory(u, platform) {
     if (!dl.saveHistory) return;
@@ -88,21 +255,31 @@ export function render(view, ctx) {
     drawHistory();
   }
 
-  function drawResult() {
+  let lastDrawn = null;
+  function drawResult(force) {
     const raw = input.value.trim();
-    if (!raw) { result.innerHTML = ''; url = ''; return; }
+    // вставка и ввод срабатывают оба — не запрашиваем сервер дважды для той же ссылки
+    if (force !== true && raw === lastDrawn) return;
+    lastDrawn = raw;
+    stopPoll();
+    infoToken++;
+    if (!raw) { result.innerHTML = ''; here.innerHTML = ''; url = ''; return; }
     url = safeUrl(raw);
     if (!url || !hostOf(url).includes('.')) {
+      here.innerHTML = '';
       result.innerHTML = '<section class="card"><p class="form-error">Это не похоже на ссылку. Скопируйте адрес видео через «Поделиться → Копировать ссылку».</p></section>';
       return;
     }
     const p = detect(url);
     const svcs = dl.services.filter((s) => matches(s, p));
-    result.innerHTML = `<section class="card result" style="--pf:${p ? p.color : 'var(--accent)'}">
-      <div class="result-head">
+    const viaServer = hasServer(ctx.data);
+    if (viaServer) drawHere(url, p);
+    else here.innerHTML = '';
+    result.innerHTML = `<${viaServer ? 'details' : 'section'} class="card result ${viaServer ? 'other-ways' : ''}" style="--pf:${p ? p.color : 'var(--accent)'}">
+      ${viaServer ? '<summary>Другие способы скачать</summary>' : `<div class="result-head">
         <span class="pf-badge">${esc(p ? p.name : hostOf(url))}</span>
         <a class="ellipsis muted small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>
-      </div>
+      </div>`}
 
       <h4>1. Скачать онлайн</h4>
       ${svcs.length ? `<div class="svc-buttons">${svcs.map((s) => `<a class="svc-btn" data-svc="${esc(s.id)}" href="${esc(serviceHref(s, url))}" target="_blank" rel="noopener noreferrer">
@@ -124,7 +301,7 @@ export function render(view, ctx) {
         </ul>
         <p class="muted small">Потом вставьте команду в терминал — видео сохранится в текущую папку. Если YouTube перестал скачиваться — обновите: <span class="mono">yt-dlp -U</span>.</p>
       </details>
-    </section>`;
+    </${viaServer ? 'details' : 'section'}>`;
 
     $$('[data-svc]', result).forEach((a) => a.addEventListener('click', () => { copyText(url, ''); addHistory(url, p); }));
     $$('input[name=fmt]', result).forEach((r) => r.addEventListener('change', () => {
@@ -167,7 +344,7 @@ export function render(view, ctx) {
     });
     card.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => {
       input.value = items[Number(b.dataset.i)].url;
-      drawResult();
+      drawResult(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }));
   }
@@ -194,7 +371,7 @@ export function render(view, ctx) {
           await ctx.save();
           dlg.close();
           drawServices();
-          drawResult();
+          drawResult(true);
         });
         form.elements.name.focus();
       },
@@ -210,16 +387,16 @@ export function render(view, ctx) {
         if (isNew) dl.services.push(target);
         await ctx.save();
         drawServices();
-        drawResult();
+        drawResult(true);
       },
     });
   }
 
-  input.addEventListener('input', debounce(drawResult, 250));
+  input.addEventListener('input', debounce(drawResult, 500));
   input.addEventListener('paste', () => setTimeout(drawResult, 0));
   $('#dl-paste', view).addEventListener('click', async () => {
     const t = await pasteText();
-    if (t) { input.value = t.trim(); drawResult(); }
+    if (t) { input.value = t.trim(); drawResult(true); }
   });
   $('#svc-add', view).addEventListener('click', () => editService());
   $('#svc-list', view).addEventListener('click', (e) => {
@@ -227,14 +404,16 @@ export function render(view, ctx) {
     if (row && e.target.closest('[data-act]')) editService(dl.services.find((s) => s.id === row.dataset.id));
   });
 
+  drawServerCard();
   drawServices();
   drawHistory();
   const initial = ctx.params.get('u');
   if (initial) {
     input.value = initial;
-    drawResult();
+    drawResult(true);
     history.replaceState(null, '', '#/video');
   } else {
     input.focus();
   }
+  return () => { alive = false; stopPoll(); };
 }

@@ -54,6 +54,34 @@ export function defaultFootballLinks() {
   ];
 }
 
+/**
+ * Официальные бесплатные спортивные телеканалы государственных телекомпаний —
+ * трансляции идут с их собственных серверов. Некоторые работают только в своей стране.
+ */
+export const DEFAULT_CHANNELS = [
+  {
+    id: 'tj-futbol',
+    name: 'Футбол',
+    country: 'Таджикистан',
+    url: 'https://live.teleradiocom.tj/8/3m.m3u8',
+    note: 'Государственный спортивный канал',
+  },
+  {
+    id: 'kz-qazsport',
+    name: 'QazSport',
+    country: 'Казахстан',
+    url: 'https://qazsporttv-stream.qazcdn.com/qazsporttv/qazsporttv/playlist.m3u8',
+    note: 'Работает только в Казахстане',
+  },
+  {
+    id: 'tm-sport',
+    name: 'Türkmenistan Sport',
+    country: 'Туркменистан',
+    url: 'https://alpha.tv.online.tm/hls/ch004.m3u8',
+    note: 'Вещает не круглосуточно',
+  },
+];
+
 export function defaultLinks() {
   const now = Date.now();
   return [
@@ -74,8 +102,8 @@ export function defaultData(username) {
     notes: [],
     passwords: [],
     links: defaultLinks(),
-    football: { links: defaultFootballLinks(), videos: [] },
-    downloads: { services: defaultServices(), history: [], saveHistory: true },
+    football: { links: defaultFootballLinks(), videos: [], channels: [], hiddenChannels: [] },
+    downloads: { services: defaultServices(), history: [], saveHistory: true, server: { url: '', key: '' }, quality: '720' },
     settings: { autoLock: 15 },
   };
 }
